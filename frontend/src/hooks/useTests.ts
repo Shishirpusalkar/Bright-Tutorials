@@ -54,10 +54,19 @@ export function useTests() {
       showSuccessToast("Questions generated successfully!")
       queryClient.invalidateQueries({ queryKey: ["tests"] })
     },
-    onError: (error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : "Failed to generate questions"
-      alert(message)
+    onError: (error: any, id: string) => {
+      const errorMessage = error?.body?.detail || (error instanceof Error ? error.message : "Failed to generate questions")
+      if (typeof errorMessage === 'string' && (errorMessage.includes("DUPLICATION ERROR") || errorMessage.includes("MISSING QUESTIONS"))) {
+        queryClient.setQueryData(["tests"], (oldData: any[]) => {
+          if (!oldData) return oldData
+          return oldData.map((test) =>
+            test.id === id ? { ...test, is_symmetrical: false, symmetry_message: "Extraction Incomplete" } : test
+          )
+        })
+        alert("Extraction Incomplete: " + errorMessage)
+      } else {
+        alert(errorMessage)
+      }
     },
   })
 

@@ -26,7 +26,15 @@ def upgrade():
     if 'fee_override' not in existing_columns:
         op.add_column('user', sa.Column('fee_override', sa.Float(), nullable=True))
     if 'is_fee_exempt' not in existing_columns:
-        op.add_column('user', sa.Column('is_fee_exempt', sa.Boolean(), nullable=False, server_default=sa.text('0')))
+        op.add_column(
+            'user',
+            sa.Column(
+                'is_fee_exempt',
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.false(),
+            ),
+        )
     if 'premium_expiry' not in existing_columns:
         op.add_column('user', sa.Column('premium_expiry', sa.DateTime(timezone=True), nullable=True))
     if 'last_active_at' not in existing_columns:

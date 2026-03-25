@@ -17,6 +17,7 @@ import { useEffect, useState } from "react"
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { TestsService } from "@/client"
 import type { QuestionPublic, TestPublic } from "@/client/types.gen"
+import { PdfSnippet } from "@/components/Test/RichPdfContent"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -954,7 +955,9 @@ function ViewQuestionsButton({ testId }: { testId: string }) {
           </DialogHeader>
           <div className="space-y-4 py-4">
             {testData?.questions && testData.questions.length > 0 ? (
-              testData.questions.map((q, i) => {
+              [...testData.questions]
+                .sort((a, b) => ((a.page_number || 0) - (b.page_number || 0)) || ((a.question_number || 0) - (b.question_number || 0)))
+                .map((q, i) => {
                 const question = q as QuestionPublic & {
                   correct_option?: string
                 }
@@ -972,6 +975,15 @@ function ViewQuestionsButton({ testId }: { testId: string }) {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <p className="text-sm text-zinc-300">{q.question_text}</p>
+                      {q.has_visual && q.page_number && q.visual_bbox && (
+                        <div className="flex max-w-[80%] justify-center my-4 overflow-hidden rounded-md border border-zinc-200">
+                          <PdfSnippet
+                            url={testData?.question_paper_url || ""}
+                            pageNumber={q.page_number}
+                            bbox={q.visual_bbox as [number, number, number, number]}
+                          />
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <div
                           className={`p-2 rounded border ${question.correct_option === "A"

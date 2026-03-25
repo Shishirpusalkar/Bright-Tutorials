@@ -1,5 +1,6 @@
 import secrets
 import warnings
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -59,7 +60,7 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn | str:
-        if self.POSTGRES_SERVER == "db":
+        if self.POSTGRES_SERVER == "db" and not Path("/.dockerenv").exists():
             return "sqlite:///./sql_app.db"
 
         return PostgresDsn.build(

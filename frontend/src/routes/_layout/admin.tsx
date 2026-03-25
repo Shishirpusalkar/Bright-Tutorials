@@ -22,6 +22,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
 
+type AdminStats = {
+  active_now: number
+  total_attempts: number
+  total_tests: number
+}
+
 function getUsersQueryOptions() {
   return {
     queryFn: () => UsersService.readUsers({ skip: 0, limit: 100 }),
@@ -31,7 +37,8 @@ function getUsersQueryOptions() {
 
 function getAdminStatsQueryOptions() {
   return {
-    queryFn: () => UsersService.getAdminStats(),
+    queryFn: async (): Promise<AdminStats> =>
+      (await UsersService.getAdminStats()) as AdminStats,
     queryKey: ["admin-stats"],
   }
 }

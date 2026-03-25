@@ -54,6 +54,8 @@ services:
     restart: "no"
     ports:
       - "8080:8080"
+    labels:
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.tls.certresolver=
 
   backend:
     restart: "no"
@@ -86,6 +88,8 @@ services:
       SMTP_PORT: "1025"
       SMTP_TLS: "false"
       EMAILS_FROM_EMAIL: "noreply@example.com"
+    labels:
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls.certresolver=
 
   mailcatcher:
     image: schickling/mailcatcher
@@ -103,6 +107,8 @@ services:
       args:
         - VITE_API_URL=http://localhost:8000
         - NODE_ENV=development
+    labels:
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls.certresolver=
 
   playwright:
     build:

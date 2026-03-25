@@ -18,6 +18,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
+      - TZ=Asia/Kolkata
 
   adminer:
     image: adminer
@@ -29,6 +30,7 @@ services:
       - db
     environment:
       - ADMINER_DESIGN=pepa-linha-dark
+      - TZ=Asia/Kolkata
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
@@ -58,6 +60,7 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=Asia/Kolkata
       - DOMAIN=${DOMAIN}
       - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
       - ENVIRONMENT=${ENVIRONMENT}
@@ -91,6 +94,7 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=Asia/Kolkata
       - DOMAIN=${DOMAIN}
       - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
       - ENVIRONMENT=${ENVIRONMENT}
@@ -142,6 +146,8 @@ services:
     networks:
       - traefik-public
       - default
+    environment:
+      - TZ=Asia/Kolkata
     build:
       context: .
       dockerfile: frontend/Dockerfile
