@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.api.routes import (
     auth,
     ai_integration,
+    deepseek_pdf,
     payments,
     settings as settings_router,
 )
@@ -52,6 +53,7 @@ app.include_router(
     ai_integration.router, prefix=settings.API_V1_STR, tags=["ai-integration"]
 )
 app.include_router(settings_router.router, prefix=settings.API_V1_STR)
+app.include_router(deepseek_pdf.router, prefix=settings.API_V1_STR)
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
