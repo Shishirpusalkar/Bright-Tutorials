@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown"
 import rehypeKatex from "rehype-katex"
 import rehypeRaw from "rehype-raw"
 import remarkMath from "remark-math"
+import "katex/dist/katex.min.css"
 import { cn } from "@/lib/utils"
 
 export const VISUAL_SNIPPET_TOKEN = "[[VISUAL_SNIPPET]]"
