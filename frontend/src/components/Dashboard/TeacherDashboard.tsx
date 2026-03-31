@@ -980,7 +980,7 @@ function ViewQuestionsButton({ testId }: { testId: string }) {
                           <PdfSnippet
                             url={toAbsoluteBackendUrl(testData?.question_paper_url) || ""}
                             pageNumber={q.page_number}
-                            bbox={q.visual_bbox as [number, number, number, number]}
+                            bbox={q.visual_bbox as { x0: number; y0: number; x1: number; y1: number }}
                           />
                         </div>
                       )}
