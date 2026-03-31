@@ -970,10 +970,15 @@ def process_pdf_background(
                 raise Exception("AI EXTRACTION FAILED: no valid unique questions cached")
 
             for cached_question in cached_questions:
+                q_options = cached_question.options or {}
                 db_question = Question(
                     test_id=test.id,
                     question_text=cached_question.question_text,
                     image_url=cached_question.image_url,
+                    option_a=q_options.get("A"),
+                    option_b=q_options.get("B"),
+                    option_c=q_options.get("C"),
+                    option_d=q_options.get("D"),
                     options=cached_question.options,
                     correct_option=cached_question.correct_option,
                     solution_text=cached_question.solution_text,

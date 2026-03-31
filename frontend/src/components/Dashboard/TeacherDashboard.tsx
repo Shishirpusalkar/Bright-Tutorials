@@ -19,7 +19,7 @@ import { TestsService } from "@/client"
 import type { QuestionPublic, TestPublic } from "@/client/types.gen"
 import { PdfSnippet } from "@/components/Test/RichPdfContent"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { cn, toAbsoluteBackendUrl } from "@/lib/utils"
 import {
   Card,
   CardContent,
@@ -439,7 +439,7 @@ export default function TeacherDashboard() {
                               asChild
                             >
                               <a
-                                href={test.question_paper_url ?? "#"}
+                                href={toAbsoluteBackendUrl(test.question_paper_url) ?? "#"}
                                 target="_blank"
                                 rel="noreferrer"
                               >
@@ -978,7 +978,7 @@ function ViewQuestionsButton({ testId }: { testId: string }) {
                       {q.has_visual && q.page_number && q.visual_bbox && (
                         <div className="flex max-w-[80%] justify-center my-4 overflow-hidden rounded-md border border-zinc-200">
                           <PdfSnippet
-                            url={testData?.question_paper_url || ""}
+                            url={toAbsoluteBackendUrl(testData?.question_paper_url) || ""}
                             pageNumber={q.page_number}
                             bbox={q.visual_bbox as [number, number, number, number]}
                           />
