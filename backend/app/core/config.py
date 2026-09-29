@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER_PASSWORD: str
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-flash-latest"
+    # Redis caching
+    REDIS_URL: str = "redis://localhost:6379/0"
+    PDF_CACHE_TTL_SECONDS: int = 3600  # 1 hour default TTL
+    # DeepSeek AI
+    DEEPSEEK_API_KEY: str | None = None
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     RAZORPAY_KEY_ID: str | None = None
     RAZORPAY_KEY_SECRET: str | None = None
     TESSERACT_CMD: str | None = (
