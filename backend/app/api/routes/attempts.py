@@ -259,6 +259,9 @@ def read_attempt(
     # Convert to public model and enrich answers
     result = AttemptPublic.model_validate(attempt)
 
+    # Fetch the test to get question_paper_url and other test-level data
+    test = session.get(Test, attempt.test_id)
+
     # Fetch all questions for this test to ensure even unattempted ones are shown
     questions_statement = (
         select(Question)

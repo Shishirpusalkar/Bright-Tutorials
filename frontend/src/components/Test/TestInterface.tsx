@@ -36,7 +36,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { cn } from "@/lib/utils"
+import { cn, toAbsoluteBackendUrl } from "@/lib/utils"
 import "katex/dist/katex.min.css"
 
 interface ExtendedQuestion extends QuestionPublic {
@@ -204,7 +204,7 @@ export default function TestInterface() {
       <RichPdfContent
         text={question.question_text || ""}
         token={VISUAL_SNIPPET_TOKEN}
-        pdfUrl={test?.question_paper_url || ""}
+        pdfUrl={toAbsoluteBackendUrl(test?.question_paper_url) || ""}
         pageNumber={question.page_number}
         bbox={question.visual_bbox}
       />
@@ -623,7 +623,7 @@ export default function TestInterface() {
                 {currentQuestion.image_url && (
                   <div className="flex justify-center my-4">
                     <img
-                      src={currentQuestion.image_url}
+                      src={toAbsoluteBackendUrl(currentQuestion.image_url) || ""}
                       alt={`Question ${currentQuestion.question_number || currentIndex + 1} visual`}
                       className="max-w-[80%] rounded-lg border border-zinc-200 bg-white shadow-sm"
                     />
@@ -635,7 +635,7 @@ export default function TestInterface() {
                   !currentQuestion.image_url &&
                   !String(currentQuestion.question_text || "").includes(VISUAL_SNIPPET_TOKEN) && (
                     <PdfSnippet
-                      url={test?.question_paper_url || ""}
+                      url={toAbsoluteBackendUrl(test?.question_paper_url) || ""}
                       pageNumber={currentQuestion.page_number}
                       bbox={currentQuestion.visual_bbox}
                     />

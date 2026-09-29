@@ -30,7 +30,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, toAbsoluteBackendUrl } from "@/lib/utils"
 import "katex/dist/katex.min.css"
 
 // Types (should eventually be in types.gen.ts, but defining here for speed)
@@ -351,7 +351,7 @@ export default function TestAnalysis() {
                       <RichPdfContent
                         text={ans.question_text || "Question text not available"}
                         token={VISUAL_SNIPPET_TOKEN}
-                        pdfUrl={ans.question_paper_url}
+                        pdfUrl={toAbsoluteBackendUrl(ans.question_paper_url)}
                         pageNumber={ans.page_number}
                         bbox={ans.visual_bbox}
                       />
@@ -360,7 +360,7 @@ export default function TestAnalysis() {
                       !String(ans.question_text || "").includes(VISUAL_SNIPPET_TOKEN) && (
                         <div className="mt-4 flex justify-center">
                           <img
-                            src={ans.image_url}
+                            src={toAbsoluteBackendUrl(ans.image_url) || ""}
                             alt={`Question ${index + 1} visual`}
                             className="max-w-[88%] rounded-lg border border-white/10 bg-white shadow-sm"
                           />
@@ -373,7 +373,7 @@ export default function TestAnalysis() {
                       !String(ans.question_text || "").includes(VISUAL_SNIPPET_TOKEN) && (
                         <div className="mt-4 flex justify-center">
                           <PdfSnippet
-                            url={ans.question_paper_url || ""}
+                            url={toAbsoluteBackendUrl(ans.question_paper_url) || ""}
                             pageNumber={ans.page_number}
                             bbox={ans.visual_bbox}
                           />
@@ -486,7 +486,7 @@ export default function TestAnalysis() {
                             <RichPdfContent
                               text={ans.solution_text}
                               token={SOLUTION_SNIPPET_TOKEN}
-                              pdfUrl={ans.question_paper_url}
+                              pdfUrl={toAbsoluteBackendUrl(ans.question_paper_url)}
                               pageNumber={ans.page_number}
                               bbox={ans.solution_bbox}
                             />

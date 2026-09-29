@@ -52,6 +52,32 @@ STRICT RULES:
 50. Do NOT treat it as an error if a subject's full blueprint count is split across later pages.
 51. EVERY question object MUST contain: "subject", "section_name", "question_number", and "question_text".
 52. EVERY question object MUST contain a "page_number" integer indicating which page the question text primarily resides on.
+53. For MCQ/SCQ questions, you MUST include an "options" field as a JSON object mapping option labels to text. Include only the options that actually appear in the question (usually A–D, but some questions may have fewer). e.g. {{"A": "option text", "B": "option text", "C": "option text", "D": "option text"}}. Extract all options exactly as printed.
+54. You MUST include a "correct_answer" field: for MCQ/SCQ use the letter (e.g. "A", "B", "C", or "D"); for INTEGER/NUMERIC use the numeric value as a string.
+55. You MUST include a "question_type" field: use "SCQ" for single-correct MCQ, "MCQ" for multiple-correct, "INTEGER" for integer-type, "NUMERIC" for numerical-value type. For INTEGER/NUMERIC questions, omit the "options" field or set it to null.
+56. LATEX FORMATTING: All mathematical expressions, equations, formulas, and symbols MUST be wrapped in LaTeX delimiters so the frontend can render them correctly with KaTeX:
+    - Inline math (in the middle of a sentence): wrap with single dollar signs, e.g. $x^2 + y^2 = r^2$
+    - Display/block math (on its own line): wrap with double dollar signs, e.g. $$\\frac{{d}}{{dx}}(x^n) = nx^{{n-1}}$$
+    - This applies to question_text, all option values, and solution_text.
+    - Examples of what must be LaTeX-wrapped: fractions, exponents, subscripts, integrals, summations, Greek letters (α, β, γ…), chemical formulas with subscripts, trigonometric functions, logarithms, vectors, matrices.
+    - Plain text like "x squared" should be written as $x^2$; "CO2" should be written as $\\text{{CO}}_2$; "H2O" as $\\text{{H}}_2\\text{{O}}$.
+
+Each returned object MUST follow this exact JSON structure:
+{{
+  "question_number": <integer>,
+  "subject": "<subject name>",
+  "section_name": "<section name>",
+  "question_text": "<full question text with math in $...$ or $$...$$>",
+  "options": {{"A": "<text with math in $...$>", "B": "<text>", "C": "<text>", "D": "<text>"}} or null for INTEGER/NUMERIC,
+  "correct_answer": "<A/B/C/D or numeric value>",
+  "question_type": "<SCQ|MCQ|INTEGER|NUMERIC>",
+  "solution_text": "<solution text with math in $...$ or $$...$$>",
+  "has_visual": <true|false>,
+  "visual_tag": "<circuit|math|organic|biology|graph|figure|null>",
+  "figure_bbox": [x0, y0, x1, y1] or null,
+  "solution_bbox": [x0, y0, x1, y1] or null,
+  "page_number": <integer>
+}}
 
 If the current batch contains visible numbered questions but you still cannot reconcile them safely, include:
 "error": "QUESTION_COUNT_MISMATCH", "expected": X, "found": Y, "subject": "..."
@@ -332,6 +358,50 @@ def generate_questions_from_pdf(pdf_path, teacher_blueprint, job_id=None):
                     "generationConfig": {
                         "temperature": 0.1,
                         "response_mime_type": "application/json",
+                        "response_schema": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "question_number": {"type": "INTEGER"},
+                                    "subject": {"type": "STRING"},
+                                    "section_name": {"type": "STRING"},
+                                    "question_text": {"type": "STRING"},
+                                    "options": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "A": {"type": "STRING"},
+                                            "B": {"type": "STRING"},
+                                            "C": {"type": "STRING"},
+                                            "D": {"type": "STRING"},
+                                        },
+                                    },
+                                    "correct_answer": {"type": "STRING"},
+                                    "question_type": {"type": "STRING"},
+                                    "solution_text": {"type": "STRING"},
+                                    "has_visual": {"type": "BOOLEAN"},
+                                    "visual_tag": {"type": "STRING"},
+                                    "figure_bbox": {
+                                        "type": "ARRAY",
+                                        "items": {"type": "NUMBER"},
+                                    },
+                                    "solution_bbox": {
+                                        "type": "ARRAY",
+                                        "items": {"type": "NUMBER"},
+                                    },
+                                    "page_number": {"type": "INTEGER"},
+                                },
+                                "required": [
+                                    "question_number",
+                                    "subject",
+                                    "section_name",
+                                    "question_text",
+                                    "question_type",
+                                    "correct_answer",
+                                    "page_number",
+                                ],
+                            },
+                        },
                     },
                 }
 
@@ -392,6 +462,7 @@ def generate_questions_from_pdf(pdf_path, teacher_blueprint, job_id=None):
                             "generationConfig": {
                                 "temperature": 0.1,
                                 "response_mime_type": "application/json",
+                                "response_schema": payload["generationConfig"]["response_schema"],
                             },
                         }
                         retry_result = ai_post_with_retry(
