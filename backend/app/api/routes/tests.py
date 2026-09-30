@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from sqlmodel import col, select
+from sqlmodel import SQLModel, col, select
 
 from app.core.email_service import send_test_scheduled_alert
 
@@ -16,6 +16,8 @@ from app.models import (
     Attempt,
     Question,
     QuestionPublic,
+    QuestionReview,
+    QuestionReviewUpdate,
     Test,
     TestGenerationConfig,
     TestPublic,
@@ -290,6 +292,82 @@ def read_tests(
     return results
 
 
+def _ordered_questions(session: SessionDep, test_id: uuid.UUID) -> list[Question]:
+    """Questions in paper order (layout engine) or by number (legacy rows)."""
+    questions = session.exec(select(Question).where(Question.test_id == test_id)).all()
+    return sorted(
+        questions,
+        key=lambda q: (
+            q.display_order if q.display_order is not None else 10**6,
+            q.page_number or 0,
+            q.question_number or 0,
+        ),
+    )
+
+
+def _get_owned_test(session: SessionDep, current_user: CurrentUser, test_id: uuid.UUID) -> Test:
+    test = session.get(Test, test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    if test.created_by != current_user.id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Not enough privileges")
+    return test
+
+
+class TestReview(SQLModel):
+    test_id: uuid.UUID
+    title: str
+    question_paper_url: str | None = None
+    parsing_report: dict | None = None
+    questions: list[QuestionReview] = []
+
+
+@router.get("/{id}/review", response_model=TestReview)
+def review_test(*, session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
+    """Teacher view of an extracted paper: answers, solutions, review flags."""
+    test = _get_owned_test(session, current_user, id)
+    config = session.exec(
+        select(TestGenerationConfig).where(TestGenerationConfig.test_id == id)
+    ).first()
+    return TestReview(
+        test_id=test.id,
+        title=test.title,
+        question_paper_url=test.question_paper_url,
+        parsing_report=config.parsing_report if config else None,
+        questions=[QuestionReview.model_validate(q) for q in _ordered_questions(session, id)],
+    )
+
+
+@router.patch("/{id}/questions/{question_id}", response_model=QuestionReview)
+def update_reviewed_question(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    question_id: uuid.UUID,
+    body: QuestionReviewUpdate,
+) -> Any:
+    """Let the teacher fix an answer/type after checking the extraction."""
+    _get_owned_test(session, current_user, id)
+    question = session.get(Question, question_id)
+    if not question or question.test_id != id:
+        raise HTTPException(status_code=404, detail="Question not found")
+    updates = body.model_dump(exclude_unset=True)
+    if "correct_option" in updates and updates["correct_option"] is not None:
+        updates["correct_option"] = updates["correct_option"].strip().upper()
+        question.answer_source = "teacher"
+        reasons = [r for r in (question.review_reasons or []) if "answer" not in r]
+        question.review_reasons = reasons or None
+        if "needs_review" not in updates:
+            updates["needs_review"] = bool(reasons)
+    for field, value in updates.items():
+        setattr(question, field, value)
+    session.add(question)
+    session.commit()
+    session.refresh(question)
+    return QuestionReview.model_validate(question)
+
+
 @router.get("/{id}", response_model=TestPublic)
 def read_test(*, session: SessionDep, id: uuid.UUID) -> Any:
     """
@@ -301,12 +379,7 @@ def read_test(*, session: SessionDep, id: uuid.UUID) -> Any:
 
     # Explicitly load questions to ensure they are included in TestPublic
     # SQLModel relationships might not load automatically during Pydantic serialization
-    statement = (
-        select(Question)
-        .where(Question.test_id == id)
-        .order_by(col(Question.question_number))
-    )
-    questions = session.exec(statement).all()
+    questions = _ordered_questions(session, id)
 
     # Create the public model and populate questions
     test_public = TestPublic.model_validate(test)

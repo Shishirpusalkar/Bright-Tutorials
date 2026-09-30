@@ -57,6 +57,8 @@ type ConfigState = {
 	scheduledAt: string;
 	standard: string;
 	category: string;
+	// Optional "1-B, 2-C, 3-(A,C), 21-12.5" key for papers without solutions.
+	answer_key: string;
 	subjects: {
 		[key: string]: SubjectConfig;
 	};
@@ -69,6 +71,7 @@ const INITIAL_CONFIG: ConfigState = {
 	scheduledAt: "",
 	standard: "12th",
 	category: "JEE Mains",
+	answer_key: "",
 	subjects: {
 		Physics: {
 			sections: {
@@ -97,6 +100,7 @@ export default function OmegaConfigModal({
 		"upload" | "config" | "processing" | "success"
 	>("upload");
 	const [file, setFile] = useState<File | null>(null);
+	const [solutionFile, setSolutionFile] = useState<File | null>(null);
 	const [config, setConfig] = useState<ConfigState>(INITIAL_CONFIG);
 	const [subjectOrder, setSubjectOrder] = useState<string[]>(Object.keys(INITIAL_CONFIG.subjects));
 	const [parsingReport, setParsingReport] = useState<any>(null);
@@ -214,6 +218,9 @@ export default function OmegaConfigModal({
 			const formData = new FormData();
 
 			formData.append("file", file!);
+			if (solutionFile) {
+				formData.append("solution_file", solutionFile);
+			}
 			
 			// Establish Strict Chronological Order based on user's manual sort
 			const orderedSubjects: { [key: string]: any } = {};
@@ -496,6 +503,48 @@ export default function OmegaConfigModal({
 								</div>
 							</div>
 
+							<Card className="bg-zinc-900/50 border-white/10">
+								<CardContent className="p-4 space-y-4">
+									<div>
+										<h3 className="font-semibold text-purple-400">
+											Solutions &amp; Answer Key (optional)
+										</h3>
+										<p className="text-xs text-zinc-500 mt-1">
+											Solutions printed in the same PDF (a "Solution / Correct
+											Answer" copy, highlighted options or an answer-key table)
+											are detected automatically. Upload a separate solutions PDF
+											or paste a key only if your paper has neither.
+										</p>
+									</div>
+									<div className="space-y-2">
+										<Label>Separate Solutions PDF</Label>
+										<Input
+											type="file"
+											accept="application/pdf"
+											onChange={(e) => setSolutionFile(e.target.files?.[0] ?? null)}
+											className="bg-zinc-900 border-white/10 file:text-zinc-300"
+										/>
+										{solutionFile && (
+											<p className="text-xs text-zinc-400">
+												{solutionFile.name} ({(solutionFile.size / 1024 / 1024).toFixed(2)} MB)
+											</p>
+										)}
+									</div>
+									<div className="space-y-2">
+										<Label>Answer Key</Label>
+										<textarea
+											value={config.answer_key}
+											onChange={(e) =>
+												setConfig({ ...config, answer_key: e.target.value })
+											}
+											rows={3}
+											placeholder="1-B, 2-C, 3-(A,C), 21-12.5 ..."
+											className="w-full rounded-md border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+										/>
+									</div>
+								</CardContent>
+							</Card>
+
 							<div className="space-y-4">
 								<h3 className="font-semibold text-lg text-purple-400">
 									Subject Configuration
@@ -770,6 +819,38 @@ export default function OmegaConfigModal({
 									</p>
 								</div>
 							</div>
+
+							{parsingReport.report.extraction && (
+								<div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
+									{[
+										["Answers found", `${parsingReport.report.extraction.with_answer} / ${parsingReport.report.extraction.questions}`],
+										["Solutions", parsingReport.report.extraction.with_solution],
+										["Figures cropped", parsingReport.report.extraction.figures],
+										["Need review", parsingReport.report.needs_review ?? 0],
+									].map(([label, value]) => (
+										<div
+											key={label as string}
+											className="bg-zinc-900 p-3 rounded-xl border border-white/10"
+										>
+											<p className="text-zinc-500 text-xs">{label}</p>
+											<p className="text-lg font-bold text-white">{value}</p>
+										</div>
+									))}
+								</div>
+							)}
+							{parsingReport.report.extraction?.ai?.estimated_cost_usd != null && (
+								<p className="text-xs text-zinc-500">
+									AI transcription: {parsingReport.report.extraction.ai.requests} requests,
+									about ${parsingReport.report.extraction.ai.estimated_cost_usd.toFixed(3)}
+								</p>
+							)}
+							{(parsingReport.report.needs_review ?? 0) > 0 && (
+								<p className="text-xs text-amber-400">
+									Some questions need a quick check (missing answer, unusual
+									options). Open "View Questions" on the test to review and
+									set answers.
+								</p>
+							)}
 
 							<ScrollArea className="h-40 rounded-xl border border-white/10 bg-zinc-900/50 p-4 text-left">
 								<pre className="text-xs text-zinc-300 font-mono">

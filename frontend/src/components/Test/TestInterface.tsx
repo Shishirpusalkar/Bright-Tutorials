@@ -20,6 +20,11 @@ import { TestsService } from "@/client"
 import type { QuestionPublic, TestPublic } from "@/client/types.gen"
 import SmilesRenderer from "@/components/Common/SmilesRenderer"
 import {
+  type ExtractedContent,
+  isExtractedContent,
+  QuestionContent,
+} from "@/components/Test/QuestionContent"
+import {
   PdfSnippet,
   RichPdfContent,
   VISUAL_SNIPPET_TOKEN,
@@ -53,6 +58,8 @@ interface ExtendedQuestion extends QuestionPublic {
     x1: number
     y1: number
   } | null
+  content?: ExtractedContent | null
+  display_order?: number | null
 }
 
 // BTC Style Palette Colors (Dark Mode)
@@ -130,6 +137,7 @@ export default function TestInterface() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [tabSwitchCount, setTabSwitchCount] = useState(0)
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>({})
+  const [startedAt, setStartedAt] = useState<string | null>(null)
 
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -173,6 +181,9 @@ export default function TestInterface() {
   const questionsWithSubject = useMemo(() => {
     if (!test?.questions) return []
     const sorted = [...test.questions].sort((a, b) => {
+      const o1 = (a as ExtendedQuestion).display_order ?? Number.MAX_SAFE_INTEGER
+      const o2 = (b as ExtendedQuestion).display_order ?? Number.MAX_SAFE_INTEGER
+      if (o1 !== o2) return o1 - o2
       const p1 = a.page_number || 0
       const p2 = b.page_number || 0
       if (p1 !== p2) return p1 - p2
@@ -224,10 +235,10 @@ export default function TestInterface() {
 
   // Navigation Helpers
   const jumpToSubject = (subject: string) => {
-    const firstIdx = test?.questions?.findIndex(
+    const firstIdx = questionsWithSubject.findIndex(
       (q) => (q.subject || "General") === subject,
     )
-    if (firstIdx !== undefined && firstIdx !== -1) {
+    if (firstIdx !== -1) {
       setCurrentIndex(firstIdx)
       setActiveSubject(subject)
     }
@@ -239,6 +250,29 @@ export default function TestInterface() {
       setAnswers((prev) => ({ ...prev, [currentQuestion.id]: val }))
     },
     [currentQuestion],
+  )
+
+  // Multiple-correct questions store "A,C"; single-correct store "A".
+  const handleOptionSelect = useCallback(
+    (label: string) => {
+      if (!currentQuestion) return
+      if (currentQuestion.question_type !== "MCQ") {
+        handleAnswerChange(label)
+        return
+      }
+      setAnswers((prev) => {
+        const current = new Set(
+          (prev[currentQuestion.id] || "").split(",").filter(Boolean),
+        )
+        if (current.has(label)) current.delete(label)
+        else current.add(label)
+        const next = { ...prev }
+        if (current.size === 0) delete next[currentQuestion.id]
+        else next[currentQuestion.id] = Array.from(current).sort().join(",")
+        return next
+      })
+    },
+    [currentQuestion, handleAnswerChange],
   )
 
   const toggleReview = useCallback(() => {
@@ -263,23 +297,27 @@ export default function TestInterface() {
 
     setIsSubmitting(true)
     try {
-      const responses = Object.entries(answers).map(([questionId, answer]) => {
-        const q = test.questions?.find((q) => q.id === questionId)
-        const isNumeric =
-          q?.question_type === "NUMERIC" || q?.question_type === "INTEGER"
-
-        return {
-          question_id: questionId,
-          selected_option: !isNumeric ? answer : null,
-          answer_text: isNumeric ? answer : null,
-          time_spent_seconds: timeSpent[questionId] || 0,
-        }
-      })
+      // Every question the student answered or spent time on, so the
+      // analysis can show time per question even for skipped ones.
+      const responses = (test.questions || [])
+        .filter((q) => answers[q.id] || (timeSpent[q.id] || 0) > 0)
+        .map((q) => {
+          const answer = answers[q.id] || null
+          const isNumeric =
+            q.question_type === "NUMERIC" || q.question_type === "INTEGER"
+          return {
+            question_id: q.id,
+            selected_option: !isNumeric ? answer : null,
+            answer_text: isNumeric ? answer : null,
+            time_spent_seconds: timeSpent[q.id] || 0,
+          }
+        })
 
       const payload = {
         test_id: testId,
         responses: responses,
         tab_switch_count: tabSwitchCount,
+        started_at: startedAt,
       }
 
       const token = localStorage.getItem("access_token")
@@ -312,7 +350,16 @@ export default function TestInterface() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [test, answers, timeSpent, testId, tabSwitchCount, isSubmitting, navigate])
+  }, [
+    test,
+    answers,
+    timeSpent,
+    testId,
+    tabSwitchCount,
+    isSubmitting,
+    navigate,
+    startedAt,
+  ])
 
   // Time Tracking & Countdown
   useEffect(() => {
@@ -494,7 +541,10 @@ export default function TestInterface() {
                 size="lg"
                 className="w-full sm:w-auto text-lg font-bold bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-lg shadow-blue-500/20"
                 disabled={!instructionsRead}
-                onClick={() => setHasStarted(true)}
+                onClick={() => {
+                  setStartedAt(new Date().toISOString())
+                  setHasStarted(true)
+                }}
               >
                 Start Test Now
               </Button>
@@ -604,17 +654,69 @@ export default function TestInterface() {
                 </span>
               )}
             </div>
-            <div className="text-sm font-bold text-green-600">
-              +{currentQuestion?.marks || 1} Marks{" "}
-              <span className="text-zinc-400 font-normal">
-                / -{currentQuestion?.negative_marks || 0} Neg
+            <div className="flex items-center gap-4 text-sm font-bold text-green-600">
+              <span
+                className="flex items-center gap-1 font-mono text-xs font-semibold text-zinc-500"
+                title="Time spent on this question"
+              >
+                <Clock className="size-3.5" />
+                {formatTime(timeSpent[currentQuestion?.id || ""] || 0)}
+              </span>
+              <span>
+                +{currentQuestion?.marks || 1} Marks{" "}
+                <span className="text-zinc-400 font-normal">
+                  / -{Math.abs(currentQuestion?.negative_marks || 0)} Neg
+                </span>
               </span>
             </div>
           </div>
 
           {/* Question Scrollable Body */}
           <div className="flex-1 overflow-y-auto p-8 border-b border-zinc-200 custom-scrollbar">
-            {currentQuestion ? (
+            {currentQuestion && isExtractedContent(currentQuestion.content) ? (
+              <div className="max-w-4xl space-y-8">
+                <QuestionContent
+                  key={currentQuestion.id}
+                  content={currentQuestion.content}
+                  questionType={currentQuestion.question_type}
+                  selected={(answers[currentQuestion.id] || "")
+                    .split(",")
+                    .filter(Boolean)}
+                  onSelect={
+                    currentQuestion.question_type === "NUMERIC" ||
+                    currentQuestion.question_type === "INTEGER"
+                      ? undefined
+                      : handleOptionSelect
+                  }
+                />
+                {(currentQuestion.question_type === "NUMERIC" ||
+                  currentQuestion.question_type === "INTEGER") && (
+                  <div className="space-y-4">
+                    <Label className="text-base font-semibold text-zinc-700">
+                      Your Answer:
+                    </Label>
+                    <div className="flex flex-col md:flex-row gap-8 items-start">
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Answer..."
+                        className="max-w-xs text-3xl p-6 font-mono border-2 border-zinc-300 focus:ring-blue-500 focus:border-blue-500 text-blue-600 bg-white placeholder:text-zinc-400"
+                        value={answers[currentQuestion.id] || ""}
+                        onChange={(e) =>
+                          handleAnswerChange(e.target.value.replace(/[^0-9.-]/g, ""))
+                        }
+                      />
+                      <div className="bg-zinc-50 p-4 border border-zinc-200 rounded-2xl shadow-sm">
+                        <NumericKeypad
+                          value={answers[currentQuestion.id] || ""}
+                          onChange={handleAnswerChange}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : currentQuestion ? (
               <div className="max-w-4xl">
                 <div className="text-lg font-medium leading-relaxed mb-8 text-zinc-900 whitespace-pre-wrap">
                   {renderQuestionTextWithSnippet(currentQuestion)}
@@ -889,7 +991,7 @@ export default function TestInterface() {
           <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
             {/* Filter Palette by Subject */}
             {subjects.map((subject) => {
-              const subjectQuestions = (test?.questions || [])
+              const subjectQuestions = questionsWithSubject
                 .map((q, idx) => ({ ...q, globalIndex: idx }))
                 .filter((q) => (q.subject || "General") === subject)
               if (subjectQuestions.length === 0) return null

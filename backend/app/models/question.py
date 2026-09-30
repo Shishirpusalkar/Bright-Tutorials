@@ -54,6 +54,18 @@ class Question(SQLModel, table=True):
     page_number: int | None = None
     visual_bbox: dict | None = Field(default=None, sa_column=Column(JSON))
 
+    # Layout-engine output (see app/services/extraction):
+    # content = {"stem": {"text", "image"}, "options": [{"label", "text",
+    #            "figures"}], "figures": {id: {"url", "w", "h", "layout"}},
+    #            "crop": url of the original question image}
+    content: dict | None = Field(default=None, sa_column=Column(JSON))
+    # {"text", "image", "crop", "figures"}; never sent before submission.
+    solution_content: dict | None = Field(default=None, sa_column=Column(JSON))
+    display_order: int | None = Field(default=None, index=True)
+    needs_review: bool = Field(default=False)
+    review_reasons: list | None = Field(default=None, sa_column=Column(JSON))
+    answer_source: str | None = None
+
     # Relationships
     test: Optional["Test"] = Relationship(back_populates="questions")
     chapter: Optional["Chapter"] = Relationship(back_populates="questions")
@@ -63,6 +75,8 @@ class Question(SQLModel, table=True):
 
 
 class QuestionPublic(SQLModel):
+    """What a student sees while taking a test: no answers, no solutions."""
+
     id: UUID
     question_text: str
     option_a: str | None = None
@@ -78,8 +92,6 @@ class QuestionPublic(SQLModel):
     section: str | None = None
     question_type: str = "MCQ"
     question_number: int | None = None
-    solution_text: str | None = None
-    solution_bbox: dict | None = None
     image_url: str | None = None
     content_hash: str | None = None
     organic_metadata: dict | None = None
@@ -88,3 +100,27 @@ class QuestionPublic(SQLModel):
     visual_tag: str | None = None
     page_number: int | None = None
     visual_bbox: dict | None = None
+    content: dict | None = None
+    display_order: int | None = None
+
+
+class QuestionReview(QuestionPublic):
+    """Teacher view of an extracted question, including the answer key."""
+
+    correct_option: str | None = None
+    answer_source: str | None = None
+    solution_text: str | None = None
+    solution_bbox: dict | None = None
+    solution_content: dict | None = None
+    needs_review: bool = False
+    review_reasons: list | None = None
+
+
+class QuestionReviewUpdate(SQLModel):
+    """Fields a teacher can correct after reviewing an extraction."""
+
+    correct_option: str | None = None
+    question_type: str | None = None
+    marks: float | None = None
+    negative_marks: float | None = None
+    needs_review: bool | None = None

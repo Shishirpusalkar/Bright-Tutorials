@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -19,4 +19,4 @@ class TestGenerationConfig(SQLModel, table=True):
     # Store parsing stats (questions found, API usage, etc.)
     parsing_report: dict[str, Any] = Field(default={}, sa_column=Column(JSON))
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

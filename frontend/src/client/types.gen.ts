@@ -153,8 +153,11 @@ export type QuestionPublic = {
     visual_bbox?: ({
         [key: string]: unknown;
     } | null);
-    solution_text?: (string | null);
     image_url?: (string | null);
+    content?: ({
+        [key: string]: unknown;
+    } | null);
+    display_order?: (number | null);
 };
 
 export type SubmitQuestionResponse = {
@@ -168,6 +171,7 @@ export type SubmitTestRequest = {
     test_id: string;
     responses: Array<SubmitQuestionResponse>;
     tab_switch_count?: number;
+    started_at?: (string | null);
 };
 
 export type SystemSettingPublic = {

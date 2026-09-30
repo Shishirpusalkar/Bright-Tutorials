@@ -54,3 +54,14 @@ class AttemptAnswerPublic(SQLModel):
     solution_bbox: dict | None = None
     image_url: str | None = None
     question_paper_url: str | None = None
+
+    # Layout-engine content (stem/options/figures) and the worked solution,
+    # only ever returned for a submitted attempt.
+    options: dict | None = None
+    content: dict | None = None
+    solution_content: dict | None = None
+    subject: str | None = None
+    section: str | None = None
+    question_number: int | None = None
+    display_order: int | None = None
+    negative_marks: float | None = None

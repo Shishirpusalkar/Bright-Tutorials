@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
+import ExtractionReview from "@/components/Dashboard/ExtractionReview"
 import { motion } from "framer-motion"
 import {
   BarChart3,
@@ -15,9 +16,7 @@ import {
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip } from "recharts"
-import { TestsService } from "@/client"
-import type { QuestionPublic, TestPublic } from "@/client/types.gen"
-import { PdfSnippet } from "@/components/Test/RichPdfContent"
+import type { TestPublic } from "@/client/types.gen"
 import { Button } from "@/components/ui/button"
 import { cn, toAbsoluteBackendUrl } from "@/lib/utils"
 import {
@@ -917,117 +916,28 @@ function UploadTestModal({
 
 function ViewQuestionsButton({ testId }: { testId: string }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [testData, setTestData] = useState<TestPublic | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  const fetchQuestions = async () => {
-    setLoading(true)
-    try {
-      const data = (await TestsService.readTest({ id: testId })) as TestPublic
-      setTestData(data)
-      setIsOpen(true)
-    } catch (error) {
-      console.error(error)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   return (
     <>
-      <LoadingButton
+      <Button
         variant="ghost"
         size="icon"
-        onClick={fetchQuestions}
-        loading={loading}
+        onClick={() => setIsOpen(true)}
         className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10"
-        title="View Questions"
+        title="View & review questions"
       >
         <Search className="w-4 h-4" />
-      </LoadingButton>
+      </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto bg-zinc-900 border-white/10 text-white">
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto bg-zinc-900 border-white/10 text-white">
           <DialogHeader>
-            <DialogTitle>Test Questions: {testData?.title}</DialogTitle>
+            <DialogTitle>Review Extracted Questions</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              Review the questions generated for this test.
+              Check each question as students will see it, fix any answer that
+              was not found, and view the matched solutions.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            {testData?.questions && testData.questions.length > 0 ? (
-              [...testData.questions]
-                .sort((a, b) => ((a.page_number || 0) - (b.page_number || 0)) || ((a.question_number || 0) - (b.question_number || 0)))
-                .map((q, i) => {
-                const question = q as QuestionPublic & {
-                  correct_option?: string
-                }
-                return (
-                  <Card key={q.id} className="bg-zinc-800/50 border-white/10">
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <CardTitle className="text-sm font-semibold text-zinc-200">
-                          Question {i + 1}
-                        </CardTitle>
-                        <span className="text-xs font-medium bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded border border-blue-500/30">
-                          {q.marks} Mark(s)
-                        </span>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-zinc-300">{q.question_text}</p>
-                      {q.has_visual && q.page_number && q.visual_bbox && (
-                        <div className="flex max-w-[80%] justify-center my-4 overflow-hidden rounded-md border border-zinc-200">
-                          <PdfSnippet
-                            url={toAbsoluteBackendUrl(testData?.question_paper_url) || ""}
-                            pageNumber={q.page_number}
-                            bbox={q.visual_bbox as { x0: number; y0: number; x1: number; y1: number }}
-                          />
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div
-                          className={`p-2 rounded border ${question.correct_option === "A"
-                            ? "bg-green-500/20 border-green-500/50 text-green-300 font-bold"
-                            : "bg-zinc-900/50 border-white/10 text-zinc-400"
-                            }`}
-                        >
-                          A: {q.option_a}
-                        </div>
-                        <div
-                          className={`p-2 rounded border ${question.correct_option === "B"
-                            ? "bg-green-500/20 border-green-500/50 text-green-300 font-bold"
-                            : "bg-zinc-900/50 border-white/10 text-zinc-400"
-                            }`}
-                        >
-                          B: {q.option_b}
-                        </div>
-                        <div
-                          className={`p-2 rounded border ${question.correct_option === "C"
-                            ? "bg-green-500/20 border-green-500/50 text-green-300 font-bold"
-                            : "bg-zinc-900/50 border-white/10 text-zinc-400"
-                            }`}
-                        >
-                          C: {q.option_c}
-                        </div>
-                        <div
-                          className={`p-2 rounded border ${question.correct_option === "D"
-                            ? "bg-green-500/20 border-green-500/50 text-green-300 font-bold"
-                            : "bg-zinc-900/50 border-white/10 text-zinc-400"
-                            }`}
-                        >
-                          D: {q.option_d}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })
-            ) : (
-              <p className="text-center text-zinc-500 py-8">
-                No questions found. Click "AI Generate" to create some.
-              </p>
-            )}
-          </div>
+          <div className="py-2">{isOpen && <ExtractionReview testId={testId} />}</div>
         </DialogContent>
       </Dialog>
     </>
