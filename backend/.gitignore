@@ -6,3 +6,6 @@ app.egg-info
 htmlcov
 .cache
 .venv
+# Runtime output of the question extractor (cropped figures, AI cache)
+static/uploads/papers/
+data/

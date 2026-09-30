@@ -1,14 +1,15 @@
 import csv
 import io
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
-from sqlmodel import col, select
+from sqlmodel import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
@@ -40,6 +41,31 @@ class SubmitTestRequest(BaseModel):
     test_id: UUID
     responses: list[SubmitQuestionResponse]
     tab_switch_count: int = 0
+    # When the student pressed "Start Test" (ISO timestamp from the client).
+    started_at: datetime | None = None
+
+
+def _answers_match(question: Question, resp: SubmitQuestionResponse) -> bool:
+    correct = (question.correct_option or "").strip().upper()
+    if not correct:
+        return False
+    if question.question_type in ("MCQ", "SCQ"):
+        chosen = (resp.selected_option or "").strip().upper()
+        if not chosen:
+            return False
+        # Multiple-correct answers are compared as sets: "A,C" == "C,A".
+        return set(re.findall(r"[A-E]", chosen)) == set(re.findall(r"[A-E]", correct))
+    if question.question_type in ("NUMERIC", "INTEGER"):
+        given = (resp.answer_text or "").strip()
+        if not given:
+            return False
+        if given == correct:
+            return True
+        try:
+            return abs(float(given) - float(correct)) < 1e-6
+        except ValueError:
+            return False
+    return False
 
 
 @router.post("/submit", response_model=Attempt)
@@ -67,11 +93,18 @@ def submit_test(
         raise HTTPException(status_code=404, detail="Test not found")
 
     # Create Attempt
+    submitted_at = datetime.now(timezone.utc)
+    total_time = sum(max(0, r.time_spent_seconds) for r in request.responses)
+    started_at = request.started_at or (submitted_at - timedelta(seconds=total_time))
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
     attempt = Attempt(
         student_id=current_user.id,
         test_id=test.id,
         status=AttemptStatus.SUBMITTED,
         tab_switch_count=request.tab_switch_count,
+        started_at=started_at,
+        submitted_at=submitted_at,
     )
     session.add(attempt)
     session.commit()
@@ -97,54 +130,37 @@ def submit_test(
 
     total_score = 0
     questions_map = {q.id: q for q in test.questions}
+    section_results: dict[str, dict[str, float]] = {}
+    seen_questions: set[UUID] = set()
 
     try:
         for resp in request.responses:
             question = questions_map.get(resp.question_id)
-            if not question:
+            if not question or question.id in seen_questions:
                 continue
+            seen_questions.add(question.id)
 
-            is_correct = False
+            is_correct = _answers_match(question, resp)
             marks = 0
 
-            if question.question_type in ["MCQ", "SCQ"]:
-                if (
-                    resp.selected_option
-                    and question.correct_option
-                    and resp.selected_option.upper().strip()
-                    == question.correct_option.upper().strip()
-                ):
-                    is_correct = True
-                    marks = question.marks
-            elif question.question_type in ["NUMERIC", "INTEGER"]:
-                if resp.answer_text and question.correct_option:
-                    user_ans = resp.answer_text.strip()
-                    correct_ans = question.correct_option.strip()
-                    if user_ans == correct_ans:
-                        is_correct = True
-                    else:
-                        # Try float comparison
-                        try:
-                            if float(user_ans) == float(correct_ans):
-                                is_correct = True
-                        except ValueError:
-                            pass
-
-                    if is_correct:
-                        marks = question.marks
-
             if is_correct:
+                marks = question.marks
                 total_score += marks
             else:
-                # Deduct negative marks if student provided an answer
-                is_attempted = (resp.selected_option is not None) or (
-                    resp.answer_text is not None
+                # Deduct negative marks only if the student actually answered.
+                is_attempted = bool((resp.selected_option or "").strip()) or bool(
+                    (resp.answer_text or "").strip()
                 )
                 if is_attempted:
                     # Use test.negative_marks (e.g. -1.0)
                     neg_val = getattr(test, "negative_marks", -1.0) or -1.0
                     total_score += neg_val  # Adding a negative value
                     marks = int(neg_val)
+
+            subject_key = question.subject or "General"
+            section_key = question.section or "Main"
+            bucket = section_results.setdefault(subject_key, {})
+            bucket[section_key] = bucket.get(section_key, 0) + marks
 
             answer_record = AttemptAnswer(
                 attempt_id=attempt.id,
@@ -160,6 +176,7 @@ def submit_test(
         # Flush to ensure answers are in the DB before relationships are accessed
         session.flush()
         attempt.score = int(total_score)
+        attempt.section_results = section_results or None
 
         # Trigger AI Performance Analysis
         try:
@@ -263,12 +280,15 @@ def read_attempt(
     test = session.get(Test, attempt.test_id)
 
     # Fetch all questions for this test to ensure even unattempted ones are shown
-    questions_statement = (
-        select(Question)
-        .where(Question.test_id == attempt.test_id)
-        .order_by(col(Question.question_number))
+    questions_statement = select(Question).where(Question.test_id == attempt.test_id)
+    all_questions = sorted(
+        session.exec(questions_statement).all(),
+        key=lambda q: (
+            q.display_order if q.display_order is not None else 10**6,
+            q.page_number or 0,
+            q.question_number or 0,
+        ),
     )
-    all_questions = session.exec(questions_statement).all()
 
     # Map existing answers by question_id
     answers_map = {ans.question_id: ans for ans in attempt.answers}
@@ -311,6 +331,14 @@ def read_attempt(
         ans_public.solution_bbox = question.solution_bbox
         ans_public.image_url = question.image_url
         ans_public.question_paper_url = test.question_paper_url
+        ans_public.options = question.options
+        ans_public.content = question.content
+        ans_public.solution_content = question.solution_content
+        ans_public.subject = question.subject
+        ans_public.section = question.section
+        ans_public.question_number = question.question_number
+        ans_public.display_order = question.display_order
+        ans_public.negative_marks = question.negative_marks
 
         enriched_answers.append(ans_public)
 

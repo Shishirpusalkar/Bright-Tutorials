@@ -19,6 +19,20 @@ dependencies = [
     "sentry-sdk[fastapi]<2.0.0,>=1.40.6",
     "pyjwt<3.0.0,>=2.8.0",
     "pwdlib[argon2,bcrypt]>=0.3.0",
+    # Imported by the app at runtime (previously only in requirements.txt,
+    # so the Docker image, which installs from this file, was missing them).
+    "pymupdf>=1.24.0",
+    "pillow>=10.0.0",
+    "numpy>=1.26.0",
+    "openai>=1.40.0",
+    "requests>=2.31.0",
+    "opencv-python-headless>=4.8.0",
+    "razorpay>=1.4.0",
+    "fpdf2>=2.7.0",
+    "redis>=5.0.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "pypdf>=4.0.0",
 ]
 
 [dependency-groups]

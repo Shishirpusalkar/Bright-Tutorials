@@ -99,6 +99,20 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER_PASSWORD: str
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-flash-latest"
+    # PDF question extraction.
+    # "layout": PyMuPDF layout analysis + OpenAI transcription of each
+    #           isolated question crop (default; handles 2-column papers,
+    #           figures in options, solutions and answer keys).
+    # "gemini": the legacy whole-page Gemini extractor.
+    EXTRACTION_ENGINE: Literal["layout", "gemini"] = "layout"
+    OPENAI_API_KEY: str | None = None
+    # Any OpenAI-compatible vision model; gpt-4.1-mini costs roughly
+    # $0.05-0.15 per 180-question paper including solutions.
+    OPENAI_EXTRACTION_MODEL: str = "gpt-4.1-mini"
+    OPENAI_BASE_URL: str | None = None
+    EXTRACTION_CACHE_DIR: str = "data/extraction_cache"
+    EXTRACTION_MAX_WORKERS: int = 4
+    EXTRACTION_BATCH_SIZE: int = 6
     # Redis caching
     REDIS_URL: str = "redis://localhost:6379/0"
     PDF_CACHE_TTL_SECONDS: int = 3600  # 1 hour default TTL

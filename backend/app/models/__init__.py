@@ -17,7 +17,7 @@ from .message import Message
 from .subject import Subject
 from .chapter import Chapter
 from .parsed_paper import ParsedPaperCache
-from .question import Question, QuestionPublic
+from .question import Question, QuestionPublic, QuestionReview, QuestionReviewUpdate
 from .test import Test, TestPublic
 from .attempt import Attempt, AttemptStatus, AttemptPublic
 from .attempt_answer import AttemptAnswer, AttemptAnswerPublic
@@ -50,6 +50,8 @@ __all__ = [
     "Chapter",
     "Question",
     "QuestionPublic",
+    "QuestionReview",
+    "QuestionReviewUpdate",
     "Test",
     "TestPublic",
     "Attempt",

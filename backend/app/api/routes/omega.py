@@ -21,6 +21,7 @@ from app.core.ai import (
     get_batch_settings,
     normalize_question_type,
 )
+from app.core.config import settings
 from app.core.db import engine
 from app.core.email_service import send_test_scheduled_alert
 from app.core.jobs import (
@@ -96,6 +97,13 @@ class CachedGeneratedQuestion:
     image_url: str | None
     standard: str | None
     category: str | None
+    # Layout engine only.
+    content: dict | None = None
+    solution_content: dict | None = None
+    display_order: int | None = None
+    needs_review: bool = False
+    review_reasons: list | None = None
+    answer_source: str | None = None
 
     def to_public_dict(self) -> dict:
         return {
@@ -123,6 +131,12 @@ class CachedGeneratedQuestion:
             "image_url": self.image_url,
             "standard": self.standard,
             "category": self.category,
+            "content": self.content,
+            "solution_content": self.solution_content,
+            "display_order": self.display_order,
+            "needs_review": self.needs_review,
+            "review_reasons": self.review_reasons,
+            "answer_source": self.answer_source,
         }
 
 
@@ -477,28 +491,41 @@ def omega_upload(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     config: str = Form(...),  # JSON string
+    solution_file: UploadFile | None = File(None),
 ):
     """
     Omega Go Workflow (Refactored for Progress Bar):
-    1. Upload PDF & Config
+    1. Upload PDF (+ optional separate solutions PDF) & Config
     2. Create Job ID
     3. Start Background AI Parsing
     4. Return Job ID immediately
+
+    Solutions printed in the same PDF (a "Solution:(Correct Answer:X)" copy,
+    highlighted options or an answer-key table) are detected automatically.
+    config may carry "answer_key": "1-B, 2-C, 3-(A) ..." as a fallback.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    if solution_file is not None and solution_file.filename and not solution_file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solutions must be a PDF file")
 
     try:
         config_data = json.loads(config)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON config")
 
-    # 1. Save PDF Temporarily
+    # 1. Save PDF(s) Temporarily
     temp_path = f"static/uploads/temp/{uuid.uuid4()}.pdf"
     Path("static/uploads/temp").mkdir(parents=True, exist_ok=True)
 
     with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    solution_path = None
+    if solution_file is not None and solution_file.filename:
+        solution_path = f"static/uploads/temp/{uuid.uuid4()}.pdf"
+        with open(solution_path, "wb") as buffer:
+            shutil.copyfileobj(solution_file.file, buffer)
 
     # 2. Create Job
     job_id = create_job()
@@ -506,7 +533,7 @@ def omega_upload(
     # 3. Start Background Processing
     print(f">>> DEBUG: OMEGA UPLOAD - Initiating background task for Job: {job_id}")
     background_tasks.add_task(
-        process_pdf_background, job_id, temp_path, config_data, current_user.id
+        process_pdf_background, job_id, temp_path, config_data, current_user.id, solution_path
     )
 
     return {
@@ -517,7 +544,11 @@ def omega_upload(
 
 
 def process_pdf_background(
-    job_id: str, temp_path: str, config_data: dict, user_id: UUID
+    job_id: str,
+    temp_path: str,
+    config_data: dict,
+    user_id: UUID,
+    solution_path: str | None = None,
 ):
     """
     Background worker for PDF processing.
@@ -821,7 +852,22 @@ def process_pdf_background(
 
             # 1.6 Generate missing content
             api_calls = 0
-            if teacher_blueprint:
+            extraction_report: dict | None = None
+            layout_cache: list[CachedGeneratedQuestion] | None = None
+            if teacher_blueprint and settings.EXTRACTION_ENGINE == "layout":
+                layout_cache, extraction_report = build_layout_question_cache(
+                    job_id=job_id,
+                    pdf_path=temp_path,
+                    solution_path=solution_path,
+                    config_data=config_data,
+                    teacher_blueprint=teacher_blueprint,
+                )
+                api_calls = int((extraction_report.get("ai") or {}).get("requests") or 0)
+                if not layout_cache:
+                    raise Exception(
+                        "AI EXTRACTION FAILED: no extracted question falls inside the configured question ranges"
+                    )
+            elif teacher_blueprint:
                 update_job(
                     job_id,
                     progress=15,
@@ -962,10 +1008,13 @@ def process_pdf_background(
                 subject_stats[subj_key]["sections"][sect_key]["count"] += 1
                 subject_stats[subj_key]["sections"][sect_key]["marks"] += marks
 
-            cached_questions = build_question_cache(
-                teacher_blueprint=teacher_blueprint,
-                questions=raw_questions,
-            )
+            if layout_cache is not None:
+                cached_questions = layout_cache
+            else:
+                cached_questions = build_question_cache(
+                    teacher_blueprint=teacher_blueprint,
+                    questions=raw_questions,
+                )
             if not cached_questions:
                 raise Exception("AI EXTRACTION FAILED: no valid unique questions cached")
 
@@ -997,6 +1046,12 @@ def process_pdf_background(
                     category=cached_question.category,
                     page_number=cached_question.page_number,
                     visual_bbox=cached_question.visual_bbox,
+                    content=cached_question.content,
+                    solution_content=cached_question.solution_content,
+                    display_order=cached_question.display_order,
+                    needs_review=cached_question.needs_review,
+                    review_reasons=cached_question.review_reasons,
+                    answer_source=cached_question.answer_source,
                 )
                 print(
                     f">>> DEBUG: PROMOTING CACHED QUESTION to Final DB for Test: {test.id} | Hash: {(cached_question.content_hash or '')[:8]}"
@@ -1097,7 +1152,11 @@ def process_pdf_background(
             session.commit()
 
             parsing_report = {
-                "total_extracted": len(raw_questions),
+                "total_extracted": (
+                    extraction_report["questions"] if extraction_report else len(raw_questions)
+                ),
+                "extraction": extraction_report,
+                "needs_review": sum(1 for q in cached_questions if q.needs_review),
                 "total_saved": len(cached_questions),
                 "cached_questions": len(cached_questions),
                 "subject_counts": subject_counts,
@@ -1161,3 +1220,155 @@ def process_pdf_background(
         # Only cleanup if we didn't move it permanently or for the temp file
         if "temp_path" in locals() and temp_path and Path(temp_path).exists():
             Path(temp_path).unlink(missing_ok=True)
+        if solution_path and Path(solution_path).exists():
+            Path(solution_path).unlink(missing_ok=True)
+
+
+_ANSWER_KEY_RE = re.compile(
+    r"(?<![\w.])(\d{1,3})\s*[\.\):\-=]\s*\(?\s*([A-Da-d](?:\s*[,&]\s*[A-Da-d])*|[-+]?\d+(?:\.\d+)?)\s*\)?(?![\w.])"
+)
+
+
+def parse_teacher_answer_key(text: str | None) -> dict[int, str]:
+    """"1-B, 2-(C), 3. A,C, 4: 12.5" -> {1: "B", 2: "C", 3: "A,C", 4: "12.5"}."""
+    answers: dict[int, str] = {}
+    for num, ans in _ANSWER_KEY_RE.findall(text or ""):
+        ans = ans.strip().upper()
+        if re.fullmatch(r"[A-D](?:\s*[,&]\s*[A-D])*", ans):
+            ans = ",".join(dict.fromkeys(re.findall(r"[A-D]", ans)))
+        answers[int(num)] = ans
+    return answers
+
+
+def _subject_key(value: str | None) -> str:
+    return (value or "General").strip().title()
+
+
+def build_layout_question_cache(
+    job_id: str,
+    pdf_path: str,
+    solution_path: str | None,
+    config_data: dict,
+    teacher_blueprint: list[dict],
+) -> tuple[list[CachedGeneratedQuestion], dict]:
+    """Run the layout extraction engine and map its output onto the blueprint.
+
+    Blueprint ranges are the teacher's global question numbers. When the
+    paper numbers questions uniquely (1-180) those are used directly; when it
+    restarts per subject (Physics 1-30, Chemistry 1-30 ...) the running
+    position in the paper is used instead.
+    """
+    from app.services.extraction import build_transcriber, extract_paper
+
+    asset_dir = Path("static/uploads/papers") / job_id
+    asset_url = f"/static/uploads/papers/{job_id}"
+
+    def progress(pct: int, message: str) -> None:
+        update_job(job_id, progress=15 + int(pct * 0.75), message=message)
+
+    result = extract_paper(
+        pdf_path,
+        asset_dir=asset_dir,
+        asset_url=asset_url,
+        solution_pdf_path=solution_path,
+        transcriber=build_transcriber(),
+        progress=progress,
+    )
+    report = result.report
+    questions = [q for q in result.questions if q.question_type != "SUBJECTIVE"]
+    skipped_subjective = len(result.questions) - len(questions)
+
+    numbers = [q.number for q in questions]
+    numbers_unique = len(set(numbers)) == len(numbers)
+    teacher_key = parse_teacher_answer_key(config_data.get("answer_key"))
+
+    def blueprint_for(key: int, subject: str | None) -> dict | None:
+        cands = [
+            item
+            for item in teacher_blueprint
+            if int(item.get("start_q", 0)) <= key <= int(item.get("end_q", 0))
+        ]
+        if len(cands) > 1 and subject:
+            same = [c for c in cands if _subject_key(c.get("subject")) == _subject_key(subject)]
+            cands = same or cands
+        return cands[0] if cands else None
+
+    cached: list[CachedGeneratedQuestion] = []
+    outside: list[int] = []
+    for position, q in enumerate(questions, start=1):
+        key = q.number if numbers_unique else position
+        item = blueprint_for(key, q.subject)
+        if item is None:
+            outside.append(key)
+            continue
+
+        answer = q.correct_answer
+        answer_source = q.answer_source
+        reasons = list(q.review_reasons)
+        if key in teacher_key:
+            answer, answer_source = teacher_key[key], "teacher_key"
+            reasons = [r for r in reasons if r != "no answer found"]
+
+        qtype = normalize_question_type(item.get("question_type")) or q.question_type
+        if qtype in ("NUMERIC", "INTEGER") and q.options:
+            reasons.append("blueprint says numeric but options were found")
+            qtype = "MCQ" if answer and "," in answer else "SCQ"
+        elif qtype in ("SCQ", "MCQ") and not q.options:
+            reasons.append("blueprint says MCQ but no options were found")
+        if qtype == "SCQ" and answer and "," in answer:
+            qtype = "MCQ"
+
+        subject = _subject_key(item.get("subject"))
+        section = str(item.get("section_name") or q.section or "Section A")
+        content = dict(q.content)
+        content["source"] = {**content.get("source", {}), "global_number": key}
+        cached.append(
+            CachedGeneratedQuestion(
+                question_text=q.question_text,
+                options=q.options,
+                correct_option=answer,
+                solution_text=q.solution_text,
+                solution_bbox=None,
+                subject=subject,
+                section=section,
+                question_type=qtype,
+                question_number=key,
+                marks=float(item.get("pos_mark", 4.0)),
+                negative_marks=float(item.get("neg_mark", -1.0)),
+                content_hash=get_content_hash(f"{key}|{q.question_text}", q.options),
+                duplicate_guard_hash="",
+                confidence_score=1.0 if not reasons else 0.6,
+                word_similarity_anchor="",
+                intent_signature="",
+                organic_metadata=None,
+                has_visual=bool(content.get("figures")),
+                visual_tag=None,
+                page_number=q.page_number,
+                visual_bbox=None,
+                image_url=None,
+                standard=config_data.get("standard"),
+                category=config_data.get("category"),
+                content=content,
+                solution_content=q.solution_content,
+                display_order=len(cached) + 1,
+                needs_review=bool(reasons),
+                review_reasons=reasons or None,
+                answer_source=answer_source,
+            )
+        )
+
+    report = {
+        **report,
+        "outside_blueprint": outside,
+        "skipped_subjective": skipped_subjective,
+        "answers_from_teacher_key": sum(1 for c in cached if c.answer_source == "teacher_key"),
+    }
+    set_job_question_cache(job_id, [c.to_public_dict() for c in cached])
+    logger.info(
+        "Layout extraction for job %s: %s questions, %s mapped to blueprint, %s need review",
+        job_id,
+        len(result.questions),
+        len(cached),
+        sum(1 for c in cached if c.needs_review),
+    )
+    return cached, report
